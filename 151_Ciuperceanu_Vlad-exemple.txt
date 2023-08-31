@@ -1,0 +1,272 @@
+-- 12.
+
+-- Sa se afiseze numele hotelurilor, anul infiintarii sale, numarul de luni care au trecut de atunci si gradul fiecaruia 
+-- de cautare(mic, mediu, mare). Acesta va fi determinat in functie de numarul de camere rezervate din fiecare 
+-- hotel(sub 3 camere rezervate inseamna un grad de cautare scazut, intre 3 si 7 inseamna un grad de cautare mediu, 
+-- iar peste 7 inseamna un grad de cautare ridicat).
+
+-- folosirea unei expresii CASE, a 2 functii pe date calendaristice si a unei subcereri nesincronizate in clauza FROM 
+
+
+SELECT h.nume AS nume_hotel, EXTRACT(YEAR FROM TO_DATE(h.data_infiintare, 'DD-MM-YYYY')) An_infiintare, 
+FLOOR(MONTHS_BETWEEN(TO_DATE(SYSDATE, 'DD-MM-YYYY'), TO_DATE(h.data_infiintare, 'DD-MM-YYYY'))) Luni_trecute,
+       CASE
+           WHEN cnt_camere > 7 THEN 'mare'
+           WHEN cnt_camere >= 3 AND cnt_camere <= 7 THEN 'mediu'
+           ELSE 'mic'
+       END AS grad_cautare
+FROM HOTEL h LEFT JOIN ( SELECT c.cod_hotel, COUNT(r.cod_camera) AS cnt_camere
+                         FROM REZERVARE r JOIN CAMERA c ON (r.cod_camera = c.cod_camera)
+                         GROUP BY c.cod_hotel
+                       ) sub ON (h.cod_hotel = sub.cod_hotel);
+
+
+
+-- Sa se afiseze joburile si valoarea totala a salariilor pe care il au angajatii cu jobul respectiv.
+-- Se vor considera doar joburile a caror valoare totala a salariilor este mai mare decat media valorilor totale
+-- ale salariilor tuturor angajatilor.
+
+-- utilizarea a cel putin 1 bloc de cerere (clauza WITH)
+
+WITH val_job AS ( SELECT job, SUM(salariu) AS total
+                  FROM ANGAJAT
+                  GROUP BY job
+                ),
+     val_medie AS (SELECT SUM(total) / COUNT(*) AS medie
+                   FROM val_job)
+SELECT *
+FROM val_job
+WHERE total > (SELECT medie
+               FROM val_medie);
+
+
+
+-- Pentru fiecare hotel care a avut minim 5 aprovizionari, sa se afiseze numele hotelului si
+-- suma capacitatilor tuturor anexelor, excluzand parcarile
+
+-- ordonari si utilizarea functiilor NVL si DECODE (in cadrul aceleiasi cereri)
+-- folosirea unei functii pe siruri de caractere - UPPER
+
+SELECT h.nume, SUM(DECODE(UPPER(a.nume), 'PARCARE', 0, NVL(a.capacitate, 0))) AS Capacitate
+FROM HOTEL h JOIN ANEXA a ON (h.cod_hotel = a.cod_hotel)
+WHERE h.cod_hotel IN ( SELECT cod_hotel
+                       FROM APROVIZIONARE
+                       GROUP BY cod_hotel
+                       HAVING COUNT(cod_partener) >=  5
+                      )
+GROUP BY h.nume, h.cod_hotel
+ORDER BY Capacitate DESC;
+
+
+
+-- Sa se afiseze pentru fiecare client si pentru fiecare hotel la care acesta a rezervat macar o camera,        
+-- numele complet al clientului, in care numele de familie va fi scris cu majuscule, iar prenumele cu litere mici,
+-- numele hotelului, pretul celei mai scumpe rezervari si numarul camerei la care a fost facuta rezervarea.
+-- Rezultatele vor fi ordonate dupa numele complet
+                  
+-- subcereri sincronizate in care intervin cel putin 3 tabele, folosirea a cel putin 2 functii 
+-- pe siruri de caractere(CONCAT, UPPER, LOWER)
+                    
+SELECT CONCAT(UPPER(c.nume) || ' ', LOWER(c.prenume)) Nume_complet, h.nume, r.pret, cam.numar
+FROM rezervare r JOIN CLIENT c on (r.cod_client = c.cod_client)
+                 JOIN CAMERA cam on (r.cod_camera = cam.cod_camera)
+                 JOIN HOTEL h on (cam.cod_hotel = h.cod_hotel)
+WHERE r.pret = ( SELECT MAX(pret)
+                 FROM rezervare r1 JOIN CLIENT c1 ON (r1.cod_client = c1.cod_client)
+                                  JOIN CAMERA cam1 ON (r1.cod_camera = cam1.cod_camera)
+                                  JOIN HOTEL h1 ON (cam1.cod_hotel = h1.cod_hotel)
+                 WHERE h1.cod_hotel = h.cod_hotel AND c.cod_client = c1.cod_client
+                )
+ORDER BY Nume_complet;
+
+
+
+-- Sa se afiseze numele hotelului cu cele mai multe incasari din rezervari in care cel putin 2 clienti sa fi facut o rezervare.
+-- alaturi de suma totala obtinuta din incasarile respective
+
+-- grupari de date cu subcereri nesincronizate in care intervin cel putin 3
+-- tabele, functii grup, filtrare la nivel de grupuri (in cadrul aceleiasi cereri)
+
+SELECT h.nume, SUM(r.pret) AS Suma_totala
+FROM rezervare r JOIN CAMERA cam ON (r.cod_camera = cam.cod_camera)
+                 JOIN HOTEL h ON (cam.cod_hotel = h.cod_hotel)
+GROUP BY h.cod_hotel, h.nume
+HAVING COUNT(DISTINCT r.cod_client) >= 2 AND 
+       SUM(r.pret) = ( SELECT MAX(sum_tot)
+                       FROM ( SELECT h1.cod_hotel, SUM(r1.pret) AS sum_tot
+                              FROM REZERVARE r1 JOIN CAMERA cam1 ON (r1.cod_camera = cam1.cod_camera)
+                                                JOIN HOTEL h1 ON (cam1.cod_hotel = h1.cod_hotel)
+                              GROUP BY h1.cod_hotel
+                            ) 
+                     );
+
+
+
+-- 13.
+
+-- Sa se stearga angajatii cu salariu mai mic sau egal cu 3800 de lei din hotelurile care incep cu litera 'R'
+
+DELETE FROM ANGAJAT
+WHERE salariu <= 3800 AND 
+      cod_angajat IN ( SELECT ang.cod_angajat
+                       FROM ANGAJAT ang JOIN HOTEL h ON (ang.cod_hotel = h.cod_hotel)
+                       WHERE h.nume LIKE 'R%'
+                     );
+
+
+-- Sa se stearga rezervarile in care camera era de 2 persoane.
+
+DELETE FROM REZERVARE
+WHERE cod_camera IN ( SELECT cam.cod_camera
+                      FROM rezervare r JOIN camera cam ON (r.cod_camera = cam.cod_camera)
+                                       JOIN tip_camera t ON (cam.cod_tip = t.cod_tip)
+                      WHERE t.capacitate = 2
+                    );
+
+
+-- Sa se stearga toate aprovizionarile partenerului Cif in hotelurile de 4 stele 
+
+DELETE FROM APROVIZIONARE
+WHERE (cod_partener, cod_hotel) IN ( SELECT p.cod_partener, h.cod_hotel
+                                     FROM APROVIZIONARE a JOIN PARTENER p ON (p.cod_partener = a.cod_partener)
+                                                   JOIN HOTEL h ON (h.cod_hotel = a.cod_hotel)
+                                     WHERE h.stele = 4 AND LOWER(p.nume) = 'cif'
+                                   );
+
+
+-- Actualizati salariile menajerelor cu media salariilor menajerelor din acelasi hotel
+
+UPDATE ANGAJAT ang
+SET ang.salariu = ( SELECT AVG(a.salariu)
+                FROM ANGAJAT a
+                WHERE a.job = 'Menajera' AND ang.cod_hotel = a.cod_hotel
+                GROUP BY a.cod_hotel
+              )
+WHERE ang.job = 'Menajera';
+
+
+-- Actualizati pretul rezervarii pentru rezervarile din lunile ianuarie si februarie a anului 2021 cu media pretului 
+-- platit pe rezervari a clientului cu cele mai multe rezervari
+
+UPDATE REZERVARE
+SET pret = ( SELECT AVG(pret)
+             FROM REZERVARE
+             WHERE cod_client = ( SELECT cod_client
+                                  FROM REZERVARE
+                                  GROUP BY cod_client
+                                  HAVING COUNT(*) = ( SELECT MAX(nr_rez)
+                                                      FROM ( SELECT COUNT(*) AS nr_rez
+                                                             FROM REZERVARE
+                                                             GROUP BY cod_client
+                                                            )
+                                                    )
+                                 )
+           )
+WHERE data_sosire >= TO_DATE('01-01-2021', 'DD-MM-YYYY') AND data_sosire < TO_DATE('01-03-2021', 'DD-MM-YYYY');
+
+
+-- Actualizati salariile angajatilor ce nu sunt manageri, din hotelurile de 4 stele, modificandu-le in salariul 
+-- angajatului care este nascut in acelasi an si in aceeasi luna cu managerul sau, 
+-- la care se adauga 500 de lei.
+
+UPDATE ANGAJAT
+SET salariu = ( SELECT ang.salariu + 500
+                FROM ANGAJAT ang JOIN ANGAJAT man ON (ang.cod_manager = man.cod_angajat) 
+                WHERE ang.cod_manager IS NOT NULL AND 
+                      EXTRACT(YEAR FROM ang.data_nasterii) = EXTRACT(YEAR FROM man.data_nasterii) AND
+                      EXTRACT(MONTH FROM ang.data_nasterii) = EXTRACT(MONTH FROM man.data_nasterii)  
+              )
+WHERE cod_angajat IN ( SELECT ang.cod_angajat
+                       FROM ANGAJAT ang JOIN HOTEL h ON (ang.cod_hotel = h.cod_hotel)
+                       WHERE h.stele = 4 AND ang.cod_manager IS NOT NULL
+                     );
+
+
+
+
+-- 15.
+
+
+-- Sa se afiseze pentru toti clientii cu lungimea numelui cel putin 5: numele lor complet, pretul rezervarilor, numarul 
+-- camerei rezervate si numele hotelului la care au facut rezervarea, fiind inclusi si clientii care nu au rezervat 
+-- nicio camera la niciun hotel
+
+-- outer-join pe minimum 4 tabele
+
+SELECT c.nume || ' ' || c.prenume AS Nume_complet, r.pret, cam.numar, h.nume
+FROM CLIENT c LEFT JOIN REZERVARE r ON (c.cod_client = r.cod_client)
+              LEFT JOIN CAMERA cam ON (r.cod_camera = cam.cod_camera)
+              LEFT JOIN HOTEL h ON (cam.cod_hotel = h.cod_hotel)
+WHERE LENGTH(c.nume) >= 5;
+
+
+
+-- Sa se afiseze numele clientilor care au facut rezervari la toate hotelurile la care s-a cazat clientul
+-- cu cele mai multe rezervari facute, incluzandu-l si pe clientul respectiv
+
+-- division
+
+SELECT c.nume || ' ' || c.prenume
+FROM REZERVARE r JOIN CLIENT c on (r.cod_client = c.cod_client)
+                 JOIN CAMERA cam on (r.cod_camera = cam.cod_camera)
+                 JOIN HOTEL h on (cam.cod_hotel = h.cod_hotel)
+WHERE h.cod_hotel IN ( SELECT h1.cod_hotel
+                       FROM REZERVARE r1 JOIN CLIENT c1 on (r1.cod_client = c1.cod_client)
+                                        JOIN CAMERA cam1 on (r1.cod_camera = cam1.cod_camera)
+                                        JOIN HOTEL h1 on (cam1.cod_hotel = h1.cod_hotel)
+                       WHERE c1.cod_client = ( SELECT cod_client
+                                               FROM REZERVARE
+                                               GROUP BY cod_client
+                                               HAVING COUNT(*) = ( SELECT MAX(nr_rez)
+                                                                   FROM ( SELECT COUNT(*) AS nr_rez
+                                                                          FROM REZERVARE
+                                                                          GROUP BY cod_client
+                                                                        )
+                                                                 )
+                                             )
+                     )
+GROUP BY c.nume, c.prenume
+HAVING COUNT(DISTINCT h.cod_hotel) = (  SELECT COUNT(DISTINCT h1.cod_hotel)
+                               FROM REZERVARE r1 JOIN CLIENT c1 on (r1.cod_client = c1.cod_client)
+                                                JOIN CAMERA cam1 on (r1.cod_camera = cam1.cod_camera)
+                                                JOIN HOTEL h1 on (cam1.cod_hotel = h1.cod_hotel)
+                               WHERE c1.cod_client = ( SELECT cod_client
+                                                       FROM REZERVARE
+                                                       GROUP BY cod_client
+                                                       HAVING COUNT(*) = ( SELECT MAX(nr_rez)
+                                                                           FROM ( SELECT COUNT(*) AS nr_rez
+                                                                                  FROM REZERVARE
+                                                                                  GROUP BY cod_client
+                                                                                )
+                                                                         )
+                                                     )
+                            );
+
+
+
+-- Sa se afiseze primii 3 cei mai bine platiti angajati cu jobul de bucatar.
+
+-- analiza top-n
+
+SELECT Nume_complet, Salariu
+FROM ( SELECT nume || ' ' || prenume AS Nume_complet, salariu AS Salariu 
+       FROM ANGAJAT
+       WHERE UPPER(job) = 'BUCATAR'
+       ORDER BY salariu DESC
+     )
+WHERE ROWNUM <= 3;
+
+
+
+-- 16.
+
+-- Sa se afiseze codul si numele hotelurilor, impreuna cu codul partenerului, data aprovizionarii si costul acesteia, 
+-- pentru hotelurile de 5 stele, in care aprovizionarea a fost facuta cu produse textile, iar costul acesteia 
+-- a fost intre 2000 si 4500 de lei.
+        
+SELECT h.cod_hotel, h.nume, p.cod_partener, a.data_aprovizionare, a.cost
+FROM HOTEL h JOIN APROVIZIONARE a ON (h.cod_hotel = a.cod_hotel)
+             JOIN PARTENER p ON (a.cod_partener = p.cod_partener)
+WHERE stele = 5 AND p.tip_produse = 'Textile' AND cost >= 2000 AND cost <= 4500; 
+
+
