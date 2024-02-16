@@ -1,4 +1,6 @@
 # Database-Hotel
-A database project centered around the management of a chain of hotels
+Database projects centered around the management of a chain of hotels
 
-It features a database of the hotels that is created in SQL Developer and it implements various complex CRUD operations, as well as queries. The project also presents a ER Diagram, normalisation up to the fifth normal form, denormalisation and optimizations of queries shown through expression trees.    
+The first project features a database of the hotels that is created Oracle SQL and it implements various complex CRUD operations, as well as queries. It also presents an ER Diagram, normalisation up to the fifth normal form, denormalisation and optimizations of queries shown through expression trees.    
+
+The second one is implemented using PL/SQL and it features integrated action flow packages that contain multiple functions and procedures, as well as LMD and LDD triggers. 
